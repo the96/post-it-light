@@ -102,6 +102,12 @@
     overflow: visible; pointer-events: none;
     z-index: 1;
   }
+  #arrow-handles {
+    position: absolute; top: 0; left: 0;
+    overflow: visible; pointer-events: none;
+    z-index: 9999;
+  }
+  #arrow-handles circle { pointer-events: all; }
   #arrows .arrow-line { stroke: #555; stroke-width: 2; fill: none; pointer-events: stroke; cursor: pointer; }
   #arrows .arrow-line.selected { stroke: #e6731a; stroke-width: 3; }
   #arrows .arrow-hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; cursor: pointer; }
@@ -288,6 +294,7 @@
 <div id="viewport">
   <div id="world">
     <svg id="arrows"></svg>
+    <svg id="arrow-handles"></svg>
   </div>
 </div>
 
@@ -549,6 +556,7 @@ function sendBackward() {
 const viewport = document.getElementById('viewport');
 const world = document.getElementById('world');
 const svg = document.getElementById('arrows');
+const handlesSvg = document.getElementById('arrow-handles');
 const colorsBar = document.getElementById('colors');
 const savedIndicator = document.getElementById('saved-indicator');
 const boardBtn = document.getElementById('board-btn');
@@ -1002,6 +1010,7 @@ function edgePoint(rect, towardX, towardY) {
 
 function renderArrows() {
   svg.innerHTML = '';
+  handlesSvg.innerHTML = '';
   Object.values(state.arrows).forEach(a => renderArrow(a));
   if (tempArrow) renderTempArrow();
 }
@@ -1122,7 +1131,7 @@ function renderArrow(a) {
         scheduleSave();
       }
     });
-    svg.appendChild(handle);
+    handlesSvg.appendChild(handle);
   }
 }
 
