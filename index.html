@@ -963,7 +963,8 @@ function renderNote(note) {
     hitPath.setAttribute('d', d);
     visPath.setAttribute('stroke', note.color || '#D32F2F');
   } else if (note.type === 'text') {
-    el.style.width = '';
+    if (note.w) el.style.width = note.w + 'px';
+    else el.style.width = '';
     el.style.height = '';
     el.style.background = '';
     el.style.borderColor = '';
@@ -1337,8 +1338,6 @@ function startResize(el, handle, e) {
   const sized = isSizedType(note.type);
   // non-sized: only horizontal resize (height is auto)
   if (!sized && (side === 'top' || side === 'bottom')) return;
-  // text has no fixed width currently; skip for now
-  if (note.type === 'text') return;
 
   const startX = note.x, startY = note.y;
   const startW = sized ? note.w : (note.w || el.offsetWidth);
@@ -1420,7 +1419,8 @@ function startEditing(el) {
   function commit() {
     textDiv.contentEditable = 'false';
     el.classList.remove('editing');
-    const newText = textDiv.textContent;
+    // innerText preserves visual line breaks (textContent collapses <div>/<br>).
+    const newText = textDiv.innerText;
     if (newText !== beforeText) {
       pushHistory();
       // pushHistory captured state with old text, but we already overwrote textDiv.
@@ -1951,8 +1951,20 @@ fileImport.addEventListener('change', async (e) => {
 document.getElementById('btn-export-png').addEventListener('click', exportPNG);
 
 function exportPNG() {
-  const items = Object.values(state.notes);
-  if (items.length === 0) { alert('要素がありません'); return; }
+  // If something is selected, export only the selection; otherwise export everything.
+  const hasSel = state.selectedNotes.size > 0 || state.selectedArrows.size > 0;
+  let items, arrowsToExport;
+  if (hasSel) {
+    items = Object.values(state.notes).filter(n => state.selectedNotes.has(n.id));
+    // include arrows whose both endpoints are in the selected note set
+    arrowsToExport = Object.values(state.arrows).filter(a =>
+      state.selectedNotes.has(a.from) && state.selectedNotes.has(a.to)
+    );
+  } else {
+    items = Object.values(state.notes);
+    arrowsToExport = Object.values(state.arrows);
+  }
+  if (items.length === 0) { alert('対象がありません'); return; }
 
   const rects = {};
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -1963,6 +1975,13 @@ function exportPNG() {
     const m = (n.type === 'circle') ? Math.max(r.w, r.h) * 0.6 : 0;
     minX = Math.min(minX, r.x - m); minY = Math.min(minY, r.y - m);
     maxX = Math.max(maxX, r.x + r.w + m); maxY = Math.max(maxY, r.y + r.h + m);
+  });
+  // bends can extend beyond endpoints
+  arrowsToExport.forEach(a => {
+    if (a.bend) {
+      minX = Math.min(minX, a.bend.x); minY = Math.min(minY, a.bend.y);
+      maxX = Math.max(maxX, a.bend.x); maxY = Math.max(maxY, a.bend.y);
+    }
   });
   const pad = 40;
   const W = (maxX - minX) + pad * 2;
@@ -1980,7 +1999,7 @@ function exportPNG() {
   // layering by z: items with z<1 below arrows, items with z>=1 above (matches in-DOM tie-break)
   const sorted = items.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
   sorted.filter(n => (n.z || 0) < 1).forEach(n => drawShapeOnCanvas(ctx, n, rects[n.id]));
-  Object.values(state.arrows).forEach(a => drawArrowOnCanvas(ctx, a, rects));
+  arrowsToExport.forEach(a => drawArrowOnCanvas(ctx, a, rects));
   sorted.filter(n => (n.z || 0) >= 1).forEach(n => drawShapeOnCanvas(ctx, n, rects[n.id]));
 
   canvas.toBlob(blob => {
