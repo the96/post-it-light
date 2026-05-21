@@ -1,0 +1,2060 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Post-it Light</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: -apple-system, "Hiragino Sans", "Yu Gothic", system-ui, sans-serif; }
+  body { background: #f5f3ed; color: #333; }
+
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 48px;
+    display: flex; align-items: center; gap: 8px; padding: 0 12px;
+    background: rgba(255,255,255,0.88); backdrop-filter: blur(8px);
+    border-bottom: 1px solid #e5e1d6; z-index: 100;
+    font-size: 13px;
+  }
+  #toolbar .title { font-weight: 600; margin-right: 4px; color: #444; }
+  #toolbar .sep { width: 1px; height: 24px; background: #e5e1d6; }
+  #toolbar button {
+    background: transparent; border: 1px solid #d8d2c2; border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font-size: 13px; color: #444;
+  }
+  #toolbar button:hover { background: #faf8f2; }
+  #toolbar .colors { display: flex; gap: 4px; }
+  #toolbar .color-dot {
+    width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent;
+    cursor: pointer; transition: transform 0.1s;
+  }
+  #toolbar .color-dot:hover { transform: scale(1.1); }
+  #toolbar .color-dot.active { border-color: #555; }
+  #toolbar .hint { margin-left: auto; color: #888; font-size: 12px; }
+  #toolbar #saved-indicator { color: #999; font-size: 11px; margin-right: 8px; }
+
+  #toolbar .tools { display: flex; gap: 4px; }
+  #toolbar .tool-btn {
+    width: 30px; padding: 4px 0; text-align: center;
+    font-size: 14px;
+  }
+  #toolbar .tool-btn.active {
+    background: #fff7e0; border-color: #e6731a; color: #e6731a;
+  }
+
+  /* Board picker */
+  .board-picker { position: relative; }
+  .board-picker .btn {
+    background: #fff; border: 1px solid #d8d2c2; border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font-size: 13px; color: #333;
+    display: inline-flex; align-items: center; gap: 6px; max-width: 220px;
+  }
+  .board-picker .btn:hover { background: #faf8f2; }
+  .board-picker .btn .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+  .board-picker .btn .chev { color: #999; font-size: 10px; }
+  .board-menu {
+    position: absolute; top: 100%; left: 0; margin-top: 4px;
+    background: #fff; border: 1px solid #d8d2c2; border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    min-width: 260px; max-width: 340px; max-height: 60vh; overflow-y: auto;
+    padding: 4px 0; z-index: 200;
+  }
+  .board-menu .item {
+    display: flex; align-items: center; padding: 6px 10px;
+    cursor: pointer; font-size: 13px; gap: 6px;
+  }
+  .board-menu .item:hover { background: #faf8f2; }
+  .board-menu .item.current { background: #fff7e0; }
+  .board-menu .item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .board-menu .item .check { width: 14px; color: #e6731a; }
+  .board-menu .item .actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.1s; }
+  .board-menu .item:hover .actions { opacity: 1; }
+  .board-menu .item .actions button {
+    background: transparent; border: none; padding: 2px 4px; border-radius: 4px;
+    cursor: pointer; font-size: 13px; color: #888;
+  }
+  .board-menu .item .actions button:hover { background: #f0e8d8; color: #444; }
+  .board-menu .divider { height: 1px; background: #f0ebdc; margin: 4px 0; }
+  .board-menu .new-board {
+    padding: 6px 10px; cursor: pointer; font-size: 13px; color: #e6731a;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .board-menu .new-board:hover { background: #faf8f2; }
+
+  #viewport {
+    position: absolute; top: 48px; left: 0; right: 0; bottom: 0;
+    overflow: hidden;
+    background-image: radial-gradient(circle, #d8d2c2 1px, transparent 1px);
+    background-size: 24px 24px;
+    cursor: grab;
+  }
+  #viewport.panning { cursor: grabbing; }
+  #viewport.marquee-mode { cursor: crosshair; }
+  #viewport.tool-mode { cursor: crosshair; }
+
+  #world {
+    position: absolute; top: 0; left: 0;
+    width: 1px; height: 1px;
+    transform-origin: 0 0;
+  }
+  #arrows {
+    position: absolute; top: 0; left: 0;
+    overflow: visible; pointer-events: none;
+    z-index: 1;
+  }
+  #arrows .arrow-line { stroke: #555; stroke-width: 2; fill: none; pointer-events: stroke; cursor: pointer; }
+  #arrows .arrow-line.selected { stroke: #e6731a; stroke-width: 3; }
+  #arrows .arrow-hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; cursor: pointer; }
+  #arrows .arrow-head { fill: #555; }
+  #arrows .arrow-head.selected { fill: #e6731a; }
+  #arrows .arrow-label { fill: #444; font-size: 12px; font-family: inherit; pointer-events: auto; cursor: text; }
+  #arrows .temp { stroke: #999; stroke-dasharray: 6 4; }
+
+  .sticky {
+    position: absolute;
+    min-width: 140px; min-height: 100px;
+    padding: 12px 14px;
+    background: #FFF59D;
+    box-shadow: 2px 4px 8px rgba(0,0,0,0.12);
+    border-radius: 2px;
+    font-size: 14px; line-height: 1.45;
+    word-break: break-word; white-space: pre-wrap;
+    cursor: grab;
+    user-select: none;
+    outline: none;
+    z-index: 2;
+  }
+  .sticky.dragging { cursor: grabbing; box-shadow: 4px 8px 16px rgba(0,0,0,0.2); }
+  .sticky.selected { box-shadow: 0 0 0 2px #e6731a, 2px 4px 8px rgba(0,0,0,0.12); }
+  .sticky.dark-bg { color: #fff; }
+  .sticky.dark-bg .placeholder { color: rgba(255,255,255,0.55); opacity: 1; }
+  .sticky.editing { cursor: text; user-select: text; }
+  .sticky-text { outline: none; }
+  .sticky-text:focus { outline: none; }
+  .sticky .placeholder { color: #888; opacity: 0.6; pointer-events: none; }
+
+  /* Text type: plain text without sticky background */
+  .sticky.type-text {
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 4px 6px;
+    min-width: 60px; min-height: 24px;
+    color: #333;
+    font-size: 14px;
+  }
+  .sticky.type-text.selected {
+    box-shadow: 0 0 0 1px #e6731a !important;
+  }
+  .sticky.type-text.dragging {
+    box-shadow: 0 0 0 1px rgba(230,115,26,0.4) !important;
+  }
+
+  /* Rectangle (outline) — outline-only click detection via SVG */
+  .sticky.type-rect-outline {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0;
+    min-width: 40px; min-height: 40px;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .sticky.type-rect-outline.selected {
+    box-shadow: 0 0 0 2px #e6731a !important;
+    border-radius: 6px;
+  }
+  .sticky.type-rect-outline .handle { pointer-events: auto; }
+
+  /* Rectangle (filled) — fill is visible but click-through; only outline catches */
+  .sticky.type-rect-filled {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0;
+    min-width: 40px; min-height: 40px;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .sticky.type-rect-filled.selected {
+    box-shadow: 0 0 0 2px #e6731a !important;
+    border-radius: 6px;
+  }
+  .sticky.type-rect-filled .handle { pointer-events: auto; }
+
+  /* Hand-drawn circle (テストの丸付け風) */
+  .sticky.type-circle {
+    background: transparent !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0;
+    min-width: 40px; min-height: 40px;
+    pointer-events: none;
+  }
+  .sticky.type-circle.selected {
+    box-shadow: 0 0 0 2px #e6731a !important;
+    border-radius: 50%;
+  }
+  .sticky.type-circle .handle { pointer-events: auto; }
+
+  /* Shape SVG layers — visible has no hit, hit layer (thick transparent) catches clicks */
+  .sticky svg.shape-svg,
+  .sticky svg.circle-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0; left: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .sticky .handle {
+    position: absolute;
+    width: 12px; height: 12px;
+    background: #fff;
+    border: 2px solid #e6731a;
+    border-radius: 50%;
+    opacity: 0;
+    transition: opacity 0.15s;
+    cursor: crosshair;
+  }
+  .sticky:hover .handle, .sticky.selected .handle { opacity: 1; }
+  .handle.top    { top: -7px;    left: 50%; margin-left: -6px; }
+  .handle.right  { right: -7px;  top: 50%;  margin-top: -6px; }
+  .handle.bottom { bottom: -7px; left: 50%; margin-left: -6px; }
+  .handle.left   { left: -7px;   top: 50%;  margin-top: -6px; }
+  .handle.top-right    { top: -7px;    right: -7px;  cursor: nesw-resize; }
+  .handle.top-left     { top: -7px;    left: -7px;   cursor: nwse-resize; }
+  .handle.bottom-right { bottom: -7px; right: -7px;  cursor: nwse-resize; }
+  .handle.bottom-left  { bottom: -7px; left: -7px;   cursor: nesw-resize; }
+  .handle.corner       { background: #fff; border-color: #1976d2; }
+
+  #marquee-rect {
+    position: absolute;
+    border: 1px dashed #e6731a;
+    background: rgba(230, 115, 26, 0.08);
+    pointer-events: none;
+  }
+  .rect-preview {
+    position: absolute;
+    border: 3px dashed #888;
+    pointer-events: none;
+  }
+
+  body.ui-hidden #toolbar,
+  body.ui-hidden #help { display: none; }
+  body.ui-hidden .handle { display: none !important; }
+
+  #help {
+    position: fixed; bottom: 12px; left: 12px;
+    background: rgba(255,255,255,0.88); backdrop-filter: blur(4px);
+    border: 1px solid #e5e1d6; border-radius: 6px;
+    padding: 8px 12px; font-size: 11px; color: #666;
+    line-height: 1.7; max-width: 420px;
+  }
+  #help b { color: #444; }
+  #help .row { display: block; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <span class="title">📝</span>
+  <div class="board-picker">
+    <button class="btn" id="board-btn">
+      <span class="name" id="board-name">Untitled</span>
+      <span class="chev">▼</span>
+    </button>
+    <div class="board-menu" id="board-menu" style="display:none;"></div>
+  </div>
+  <div class="sep"></div>
+  <div class="tools">
+    <button class="tool-btn" data-tool="text" title="テキスト (背景なし)">T</button>
+    <button class="tool-btn" data-tool="rect-outline" title="四角(枠のみ)">▭</button>
+    <button class="tool-btn" data-tool="rect-filled" title="四角(塗り)">■</button>
+    <button class="tool-btn" data-tool="circle" title="手書きの丸">◯</button>
+  </div>
+  <div class="sep"></div>
+  <div class="colors" id="colors"></div>
+  <div class="sep"></div>
+  <button id="btn-fit">表示リセット</button>
+  <button id="btn-export-png">PNG</button>
+  <button id="btn-export">JSON↓</button>
+  <button id="btn-import">JSON↑</button>
+  <button id="btn-clear">全消去</button>
+  <span class="hint" id="saved-indicator">自動保存</span>
+</div>
+
+<div id="viewport">
+  <div id="world">
+    <svg id="arrows"></svg>
+  </div>
+</div>
+
+<div id="help">
+  <span class="row"><b>ダブルクリック</b>: 付箋 / <b>T ▭ ■ ◯</b>: テキスト・四角・丸 / <b>○ハンドル → 付箋</b>: 矢印 / <b>Shift+ハンドル</b>: サイズ変更</span>
+  <span class="row"><b>空白ドラッグ</b>: 板を動かす / <b>Shift+ドラッグ</b>: 矩形選択 / <b>Shift+クリック</b>: 複数選択</span>
+  <span class="row"><b>2本指スワイプ</b>: 移動 / <b>ピンチ or Cmd+ホイール</b>: ズーム / <b>1〜9</b>: 色 / <b>Delete</b>: 削除 / <b>Cmd+A</b>: 全選択 / <b>Cmd+D</b>: 複製 / <b>Cmd+Z</b>: Undo/Redo</span>
+  <span class="row"><b>Cmd+]</b>: 最前面 / <b>Cmd+[</b>: 最背面 / <b>Cmd+Shift+]</b> / <b>Cmd+Shift+[</b>: 1段前/後ろ / <b>丸の四隅ハンドル</b>: 対角の膨らみ / <b>\</b>: UIオフ</span>
+</div>
+
+<input type="file" id="file-import" accept=".json" style="display:none">
+
+<script>
+'use strict';
+
+const COLORS = [
+  { name: 'yellow', value: '#FFF59D' },
+  { name: 'pink',   value: '#F8BBD0' },
+  { name: 'blue',   value: '#B3E5FC' },
+  { name: 'green',  value: '#C8E6C9' },
+  { name: 'orange', value: '#FFCCBC' },
+  { name: 'red',    value: '#D32F2F' },
+  { name: 'white',  value: '#FFFFFF' },
+  { name: 'gray',   value: '#888888' },
+  { name: 'black',  value: '#222222' },
+];
+
+const STORAGE_KEY = 'post-it-light.v2';
+const STORAGE_KEY_V1 = 'post-it-light.v1';
+
+const state = {
+  boards: {},
+  currentBoardId: null,
+  notes: {},
+  arrows: {},
+  view: { x: 0, y: 0, scale: 1 },
+  currentColor: COLORS[0].value,
+  selectedNotes: new Set(),
+  selectedArrows: new Set(),
+  activeTool: null, // 'text' | 'rect-outline' | 'rect-filled' | null
+};
+
+// ---------- Undo / Redo ----------
+const HISTORY_LIMIT = 80;
+const history = { past: [], future: [] };
+
+function snapshot() {
+  return {
+    boardId: state.currentBoardId,
+    notes: JSON.parse(JSON.stringify(state.notes)),
+    arrows: JSON.parse(JSON.stringify(state.arrows)),
+  };
+}
+function pushHistory() {
+  history.past.push(snapshot());
+  if (history.past.length > HISTORY_LIMIT) history.past.shift();
+  history.future = [];
+}
+function applySnapshot(snap) {
+  if (snap.boardId !== state.currentBoardId) {
+    if (!state.boards[snap.boardId]) return;
+    state.currentBoardId = snap.boardId;
+    attachCurrentBoardRefs();
+  }
+  // mutate in place to keep working refs valid
+  Object.keys(state.notes).forEach(k => delete state.notes[k]);
+  Object.keys(state.arrows).forEach(k => delete state.arrows[k]);
+  Object.assign(state.notes, snap.notes);
+  Object.assign(state.arrows, snap.arrows);
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  renderBoardUI();
+  renderAll();
+  scheduleSave();
+}
+function undo() {
+  if (history.past.length === 0) return;
+  history.future.push(snapshot());
+  const prev = history.past.pop();
+  applySnapshot(prev);
+}
+function redo() {
+  if (history.future.length === 0) return;
+  history.past.push(snapshot());
+  const next = history.future.pop();
+  applySnapshot(next);
+}
+
+function uid() { return Math.random().toString(36).slice(2, 10); }
+function now() { return Date.now(); }
+function noteRotation(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) - h) + id.charCodeAt(i);
+  return ((Math.abs(h) % 14) / 10) - 0.7;
+}
+function isShapeType(t) { return t === 'text' || t === 'rect-outline' || t === 'rect-filled' || t === 'circle'; }
+function isRectType(t) { return t === 'rect-outline' || t === 'rect-filled'; }
+function isSizedType(t) { return isRectType(t) || t === 'circle'; }
+function seededRandom(seed) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = ((h << 5) - h) + seed.charCodeAt(i);
+  h = Math.abs(h) || 1;
+  return () => { h = (h * 9301 + 49297) % 233280; return h / 233280; };
+}
+function handDrawnCirclePath(w, h, id, bulge = 0) {
+  const cx = w / 2, cy = h / 2;
+  const rx = Math.max(4, w / 2 - 4);
+  const ry = Math.max(4, h / 2 - 4);
+  const rand = seededRandom(id);
+  const N = 16;
+  // Gap (un-traversed arc) sits centered at 5:30 so the X lands toward 5:30.
+  // Crossing angle of the two tangent leads = 180° − gap. Target 90°〜140° → gap 40°〜90°.
+  const gap = (2 * Math.PI / 9) + rand() * (5 * Math.PI / 18);
+  const startAngle = 5 * Math.PI / 12 + gap / 2 + (rand() - 0.5) * 0.15;
+  const sweep = Math.PI * 2 - gap;
+  const endAngle = startAngle + sweep;
+  // Loop points: ellipse + wobble + "centrifugal" bump fixed at absolute angle 7π/4 (≈ 1:30 o'clock).
+  const peakAbs = 7 * Math.PI / 4;
+  const sigma = Math.PI * 0.7;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const angle = startAngle + sweep * t;
+    const dist = Math.abs(Math.atan2(Math.sin(angle - peakAbs), Math.cos(angle - peakAbs)));
+    const bonus = 0.30 * Math.exp(-(dist * dist) / (2 * sigma * sigma));
+    // Uniform diagonal bulge: peaks at 45°, 135°, 225°, 315° (sin²(2θ)).
+    const diag = bulge * Math.sin(2 * angle) * Math.sin(2 * angle);
+    const wobble = 1 + bonus + diag + (rand() - 0.5) * 0.05;
+    pts.push({ x: cx + Math.cos(angle) * rx * wobble, y: cy + Math.sin(angle) * ry * wobble });
+  }
+  // Ellipse-correct tangent direction so the lead joins the loop smoothly (no kink at firstP/lastP).
+  // Path is (cx + cos·rx·wobble, cy + sin·ry·wobble); derivative direction is (-rx·sin, ry·cos).
+  const sTanRawX = rx * Math.sin(startAngle);
+  const sTanRawY = -ry * Math.cos(startAngle);
+  const sMag = Math.hypot(sTanRawX, sTanRawY) || 1;
+  const sTanX = sTanRawX / sMag;
+  const sTanY = sTanRawY / sMag;
+  const eTanRawX = -rx * Math.sin(endAngle);
+  const eTanRawY = ry * Math.cos(endAngle);
+  const eMag = Math.hypot(eTanRawX, eTanRawY) || 1;
+  const eTanX = eTanRawX / eMag;
+  const eTanY = eTanRawY / eMag;
+  const firstP = pts[0];
+  const lastP = pts[pts.length - 1];
+  // Solve for the actual intersection of the two tangent rays. Use a SYMMETRIC lead length
+  // (mean of s and u with margin) so the start/end visually feel like the same gesture even
+  // when the geometry isn't symmetric. Cap so flat shapes don't get absurdly long leads.
+  const dx = lastP.x - firstP.x;
+  const dy = lastP.y - firstP.y;
+  const det = eTanX * sTanY - sTanX * eTanY;
+  const baseR = Math.min(rx, ry);
+  let startLeadLen, endLeadLen;
+  if (Math.abs(det) > 1e-6) {
+    const s = (-dx * eTanY + eTanX * dy) / det;
+    const u = (sTanX * dy - sTanY * dx) / det;
+    if (s > 0 && u > 0) {
+      // Each lead extends to its OWN intersection plus a tiny margin (3〜10%).
+      // Lengths will differ for asymmetric ellipses, but each tail stops right at the X
+      // without dangling — no cap, since the cap was clipping leads before they could cross.
+      startLeadLen = s * (1.03 + rand() * 0.07);
+      endLeadLen = u * (1.03 + rand() * 0.07);
+    } else {
+      startLeadLen = endLeadLen = baseR * Math.tan(gap / 2) * 1.3;
+    }
+  } else {
+    startLeadLen = endLeadLen = baseR * Math.tan(gap / 2) * 1.3;
+  }
+  const startOuter = { x: firstP.x + sTanX * startLeadLen, y: firstP.y + sTanY * startLeadLen };
+  const endOuter = { x: lastP.x + eTanX * endLeadLen, y: lastP.y + eTanY * endLeadLen };
+  // Path: straight lead-in → loop quadratics → straight lead-out.
+  let d = `M ${startOuter.x.toFixed(2)} ${startOuter.y.toFixed(2)}`;
+  d += ` L ${firstP.x.toFixed(2)} ${firstP.y.toFixed(2)}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p0 = pts[i];
+    const p1 = pts[i+1];
+    const mx = (p0.x + p1.x) / 2;
+    const my = (p0.y + p1.y) / 2;
+    d += ` Q ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} ${mx.toFixed(2)} ${my.toFixed(2)}`;
+  }
+  d += ` T ${lastP.x.toFixed(2)} ${lastP.y.toFixed(2)}`;
+  d += ` L ${endOuter.x.toFixed(2)} ${endOuter.y.toFixed(2)}`;
+  return d;
+}
+function colorWithAlpha(hex, alpha) {
+  if (!hex || hex[0] !== '#') return hex;
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+function isDarkColor(hex) {
+  if (!hex || hex[0] !== '#') return false;
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
+  // perceptual luminance
+  return (r * 299 + g * 587 + b * 114) / 1000 < 128;
+}
+function maxZ() {
+  let m = -Infinity;
+  Object.values(state.notes).forEach(n => { if (typeof n.z === 'number' && n.z > m) m = n.z; });
+  return m === -Infinity ? 0 : m;
+}
+function minZ() {
+  let m = Infinity;
+  Object.values(state.notes).forEach(n => { if (typeof n.z === 'number' && n.z < m) m = n.z; });
+  return m === Infinity ? 0 : m;
+}
+function bringToFront() {
+  if (state.selectedNotes.size === 0) return;
+  pushHistory();
+  const m = maxZ();
+  let i = 1;
+  // preserve relative order of selected items by sorting by current z
+  const sel = Array.from(state.selectedNotes).map(id => state.notes[id]).filter(Boolean);
+  sel.sort((a, b) => (a.z || 0) - (b.z || 0));
+  sel.forEach(n => { n.z = m + i++; renderNote(n); });
+  scheduleSave();
+}
+function sendToBack() {
+  if (state.selectedNotes.size === 0) return;
+  pushHistory();
+  const m = minZ();
+  let i = 1;
+  const sel = Array.from(state.selectedNotes).map(id => state.notes[id]).filter(Boolean);
+  sel.sort((a, b) => (b.z || 0) - (a.z || 0));
+  sel.forEach(n => { n.z = m - i++; renderNote(n); });
+  scheduleSave();
+}
+function bringForward() {
+  if (state.selectedNotes.size === 0) return;
+  pushHistory();
+  const all = Object.values(state.notes).sort((a,b) => (a.z||0) - (b.z||0));
+  // walk from top to bottom: swap each selected with the unselected item directly above
+  for (let i = all.length - 2; i >= 0; i--) {
+    if (state.selectedNotes.has(all[i].id) && !state.selectedNotes.has(all[i+1].id)) {
+      [all[i], all[i+1]] = [all[i+1], all[i]];
+    }
+  }
+  all.forEach((n, idx) => { n.z = idx; });
+  all.forEach(renderNote);
+  scheduleSave();
+}
+function sendBackward() {
+  if (state.selectedNotes.size === 0) return;
+  pushHistory();
+  const all = Object.values(state.notes).sort((a,b) => (a.z||0) - (b.z||0));
+  for (let i = 1; i < all.length; i++) {
+    if (state.selectedNotes.has(all[i].id) && !state.selectedNotes.has(all[i-1].id)) {
+      [all[i], all[i-1]] = [all[i-1], all[i]];
+    }
+  }
+  all.forEach((n, idx) => { n.z = idx; });
+  all.forEach(renderNote);
+  scheduleSave();
+}
+
+// ---------- DOM refs ----------
+const viewport = document.getElementById('viewport');
+const world = document.getElementById('world');
+const svg = document.getElementById('arrows');
+const colorsBar = document.getElementById('colors');
+const savedIndicator = document.getElementById('saved-indicator');
+const boardBtn = document.getElementById('board-btn');
+const boardNameEl = document.getElementById('board-name');
+const boardMenu = document.getElementById('board-menu');
+
+// ---------- Persistence ----------
+let saveTimer = null;
+function scheduleSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  savedIndicator.textContent = '保存中…';
+  saveTimer = setTimeout(persist, 200);
+}
+function persist() {
+  const board = state.boards[state.currentBoardId];
+  if (board) board.updatedAt = now();
+  const data = { boards: state.boards, currentBoardId: state.currentBoardId };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    savedIndicator.textContent = '保存済み';
+    setTimeout(() => { if (savedIndicator.textContent === '保存済み') savedIndicator.textContent = '自動保存'; }, 1500);
+  } catch (e) {
+    savedIndicator.textContent = '保存失敗';
+    console.warn('save failed', e);
+  }
+}
+
+function loadFromStorage() {
+  const rawV2 = localStorage.getItem(STORAGE_KEY);
+  if (rawV2) {
+    try {
+      const data = JSON.parse(rawV2);
+      state.boards = data.boards || {};
+      state.currentBoardId = data.currentBoardId;
+      if (!state.currentBoardId || !state.boards[state.currentBoardId]) {
+        const ids = Object.keys(state.boards);
+        state.currentBoardId = ids[0] || null;
+      }
+    } catch (e) { console.warn('v2 load failed', e); }
+  }
+  if (Object.keys(state.boards).length === 0) {
+    const rawV1 = localStorage.getItem(STORAGE_KEY_V1);
+    if (rawV1) {
+      try {
+        const v1 = JSON.parse(rawV1);
+        const id = uid();
+        state.boards[id] = {
+          id, name: 'Board 1',
+          createdAt: now(), updatedAt: now(),
+          notes: v1.notes || {}, arrows: v1.arrows || {},
+          view: v1.view || { x: 0, y: 0, scale: 1 },
+        };
+        state.currentBoardId = id;
+      } catch (e) { console.warn('v1 migration failed', e); }
+    }
+  }
+  if (Object.keys(state.boards).length === 0) {
+    createBoard('Untitled', false);
+  }
+  attachCurrentBoardRefs();
+  // normalize: default type to 'sticky', assign z if missing
+  Object.values(state.boards).forEach(b => {
+    let nextRectZ = -1, nextOtherZ = 1;
+    Object.values(b.notes).forEach(n => {
+      if (!n.type) n.type = 'sticky';
+      if (typeof n.z !== 'number') {
+        n.z = isRectType(n.type) ? nextRectZ-- : nextOtherZ++;
+      }
+    });
+  });
+}
+
+function attachCurrentBoardRefs() {
+  const b = state.boards[state.currentBoardId];
+  state.notes = b.notes;
+  state.arrows = b.arrows;
+  state.view = b.view;
+}
+
+// ---------- Boards ----------
+function createBoard(name, persistAfter = true) {
+  const id = uid();
+  state.boards[id] = {
+    id, name: name || 'Untitled',
+    createdAt: now(), updatedAt: now(),
+    notes: {}, arrows: {},
+    view: { x: 0, y: 0, scale: 1 },
+  };
+  state.currentBoardId = id;
+  attachCurrentBoardRefs();
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  history.past = []; history.future = [];
+  if (persistAfter) {
+    renderBoardUI();
+    renderAll();
+    scheduleSave();
+  }
+  return id;
+}
+
+function switchBoard(id) {
+  if (!state.boards[id] || id === state.currentBoardId) { closeBoardMenu(); return; }
+  if (saveTimer) { clearTimeout(saveTimer); persist(); }
+  state.currentBoardId = id;
+  attachCurrentBoardRefs();
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  history.past = []; history.future = [];
+  closeBoardMenu();
+  renderBoardUI();
+  renderAll();
+  scheduleSave();
+}
+
+function renameBoard(id, newName) {
+  const b = state.boards[id];
+  if (!b) return;
+  b.name = newName.trim() || 'Untitled';
+  b.updatedAt = now();
+  renderBoardUI();
+  scheduleSave();
+}
+
+function deleteBoard(id) {
+  if (!state.boards[id]) return;
+  if (Object.keys(state.boards).length === 1) {
+    alert('最後のボードは削除できません。新しいボードを作ってから削除してください。');
+    return;
+  }
+  if (!confirm(`ボード「${state.boards[id].name}」を削除しますか?`)) return;
+  delete state.boards[id];
+  if (state.currentBoardId === id) {
+    state.currentBoardId = Object.keys(state.boards)[0];
+    attachCurrentBoardRefs();
+    state.selectedNotes.clear();
+    state.selectedArrows.clear();
+    history.past = []; history.future = [];
+    renderAll();
+  }
+  renderBoardUI();
+  scheduleSave();
+}
+
+// ---------- Board UI ----------
+function renderBoardUI() {
+  const b = state.boards[state.currentBoardId];
+  boardNameEl.textContent = b ? b.name : 'Untitled';
+}
+
+function openBoardMenu() {
+  boardMenu.innerHTML = '';
+  const boards = Object.values(state.boards).sort((a, b) => b.updatedAt - a.updatedAt);
+  boards.forEach(b => {
+    const item = document.createElement('div');
+    item.className = 'item' + (b.id === state.currentBoardId ? ' current' : '');
+    const check = document.createElement('span');
+    check.className = 'check';
+    check.textContent = b.id === state.currentBoardId ? '✓' : '';
+    item.appendChild(check);
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = b.name;
+    name.title = b.name;
+    item.appendChild(name);
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const renameBtn = document.createElement('button');
+    renameBtn.textContent = '✏️';
+    renameBtn.title = '名前変更';
+    renameBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const newName = prompt('ボード名を入力:', b.name);
+      if (newName !== null) renameBoard(b.id, newName);
+      renderBoardMenuList();
+    });
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '🗑';
+    delBtn.title = '削除';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteBoard(b.id);
+      renderBoardMenuList();
+    });
+    actions.appendChild(renameBtn);
+    actions.appendChild(delBtn);
+    item.appendChild(actions);
+    item.addEventListener('click', () => switchBoard(b.id));
+    boardMenu.appendChild(item);
+  });
+  const divider = document.createElement('div');
+  divider.className = 'divider';
+  boardMenu.appendChild(divider);
+  const newBtn = document.createElement('div');
+  newBtn.className = 'new-board';
+  newBtn.textContent = '＋ 新しいボード';
+  newBtn.addEventListener('click', () => {
+    const name = prompt('ボード名:', '');
+    if (name === null) return;
+    createBoard(name.trim() || 'Untitled');
+    closeBoardMenu();
+  });
+  boardMenu.appendChild(newBtn);
+  boardMenu.style.display = 'block';
+}
+function renderBoardMenuList() {
+  if (boardMenu.style.display === 'block') openBoardMenu();
+}
+function closeBoardMenu() { boardMenu.style.display = 'none'; }
+
+boardBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (boardMenu.style.display === 'block') closeBoardMenu();
+  else openBoardMenu();
+});
+document.addEventListener('click', (e) => {
+  if (!boardMenu.contains(e.target) && e.target !== boardBtn) closeBoardMenu();
+});
+
+// ---------- Tools ----------
+function setActiveTool(tool) {
+  state.activeTool = tool;
+  document.querySelectorAll('.tool-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.tool === tool);
+  });
+  viewport.classList.toggle('tool-mode', !!tool);
+}
+document.querySelectorAll('.tool-btn').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const tool = btn.dataset.tool;
+    setActiveTool(state.activeTool === tool ? null : tool);
+  });
+});
+
+// ---------- Viewport / world transform ----------
+function applyView() {
+  world.style.transform = `translate(${state.view.x}px, ${state.view.y}px) scale(${state.view.scale})`;
+}
+function screenToWorld(sx, sy) {
+  const rect = viewport.getBoundingClientRect();
+  const lx = sx - rect.left;
+  const ly = sy - rect.top;
+  return {
+    x: (lx - state.view.x) / state.view.scale,
+    y: (ly - state.view.y) / state.view.scale,
+  };
+}
+
+// ---------- Selection ----------
+function clearSelection() {
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  refreshSelectionUI();
+}
+function selectNotes(ids, additive = false) {
+  if (!additive) { state.selectedNotes.clear(); state.selectedArrows.clear(); }
+  ids.forEach(id => state.selectedNotes.add(id));
+  refreshSelectionUI();
+}
+function toggleNote(id) {
+  if (state.selectedNotes.has(id)) state.selectedNotes.delete(id);
+  else state.selectedNotes.add(id);
+  refreshSelectionUI();
+}
+function toggleArrow(id) {
+  if (state.selectedArrows.has(id)) state.selectedArrows.delete(id);
+  else state.selectedArrows.add(id);
+  refreshSelectionUI();
+}
+function refreshSelectionUI() {
+  document.querySelectorAll('.sticky').forEach(el => {
+    el.classList.toggle('selected', state.selectedNotes.has(el.dataset.id));
+  });
+  renderArrows();
+}
+
+// ---------- Rendering ----------
+function renderAll() {
+  document.querySelectorAll('.sticky').forEach(el => el.remove());
+  // render rectangles first (lower z), then others (z-index handles layering, but DOM order matters for events)
+  const items = Object.values(state.notes);
+  items.filter(n => isRectType(n.type)).forEach(renderNote);
+  items.filter(n => !isRectType(n.type)).forEach(renderNote);
+  renderArrows();
+  applyView();
+}
+
+function renderNote(note) {
+  let el = document.querySelector(`.sticky[data-id="${note.id}"]`);
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'sticky';
+    el.dataset.id = note.id;
+    ['top','right','bottom','left'].forEach(side => {
+      const h = document.createElement('div');
+      h.className = `handle ${side}`;
+      h.dataset.side = side;
+      el.appendChild(h);
+    });
+    // Corner handles only on circles (for bulge adjustment).
+    if (note.type === 'circle') {
+      ['top-right','top-left','bottom-right','bottom-left'].forEach(side => {
+        const h = document.createElement('div');
+        h.className = `handle corner ${side}`;
+        h.dataset.side = side;
+        el.appendChild(h);
+      });
+    }
+    const text = document.createElement('div');
+    text.className = 'sticky-text';
+    el.appendChild(text);
+    world.appendChild(el);
+    attachNoteEvents(el);
+  }
+  // type class
+  el.classList.toggle('type-text', note.type === 'text');
+  el.classList.toggle('type-rect-outline', note.type === 'rect-outline');
+  el.classList.toggle('type-rect-filled', note.type === 'rect-filled');
+  el.classList.toggle('type-circle', note.type === 'circle');
+
+  // rotation only on sticky type
+  el.style.transform = isShapeType(note.type) ? '' : `rotate(${noteRotation(note.id)}deg)`;
+  el.style.zIndex = (typeof note.z === 'number') ? String(note.z) : '';
+
+  el.style.left = note.x + 'px';
+  el.style.top = note.y + 'px';
+
+  if (isRectType(note.type)) {
+    el.style.width = note.w + 'px';
+    el.style.height = note.h + 'px';
+    el.style.background = 'transparent';
+    el.style.borderColor = '';
+    let svgEl = el.querySelector('svg.shape-svg');
+    if (!svgEl) {
+      const svgNS = 'http://www.w3.org/2000/svg';
+      svgEl = document.createElementNS(svgNS, 'svg');
+      svgEl.setAttribute('class', 'shape-svg');
+      const visEl = document.createElementNS(svgNS, 'rect');
+      visEl.setAttribute('class', 'visible');
+      visEl.setAttribute('pointer-events', 'none');
+      svgEl.appendChild(visEl);
+      const hitEl = document.createElementNS(svgNS, 'rect');
+      hitEl.setAttribute('class', 'hit');
+      hitEl.setAttribute('fill', 'none');
+      hitEl.setAttribute('stroke', 'transparent');
+      hitEl.setAttribute('stroke-width', '14');
+      hitEl.setAttribute('pointer-events', 'stroke');
+      svgEl.appendChild(hitEl);
+      el.appendChild(svgEl);
+    }
+    svgEl.setAttribute('viewBox', `0 0 ${note.w} ${note.h}`);
+    const visEl = svgEl.querySelector('rect.visible');
+    const hitEl = svgEl.querySelector('rect.hit');
+    const inset = 1.5;
+    [visEl, hitEl].forEach(r => {
+      r.setAttribute('x', inset);
+      r.setAttribute('y', inset);
+      r.setAttribute('width', Math.max(0, note.w - inset * 2));
+      r.setAttribute('height', Math.max(0, note.h - inset * 2));
+      r.setAttribute('rx', '6');
+      r.setAttribute('ry', '6');
+    });
+    if (note.type === 'rect-outline') {
+      visEl.setAttribute('fill', 'none');
+      visEl.setAttribute('stroke', note.color || '#888');
+      visEl.setAttribute('stroke-width', '3');
+    } else {
+      visEl.setAttribute('fill', colorWithAlpha(note.color || '#FFC864', 0.22));
+      visEl.setAttribute('stroke', 'none');
+    }
+  } else if (note.type === 'circle') {
+    el.style.width = note.w + 'px';
+    el.style.height = note.h + 'px';
+    el.style.background = 'transparent';
+    el.style.borderColor = '';
+    let svgEl = el.querySelector('svg.circle-svg');
+    if (!svgEl) {
+      const svgNS = 'http://www.w3.org/2000/svg';
+      svgEl = document.createElementNS(svgNS, 'svg');
+      svgEl.setAttribute('class', 'circle-svg');
+      const path = document.createElementNS(svgNS, 'path');
+      path.setAttribute('class', 'visible');
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke-width', '3');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('pointer-events', 'none');
+      svgEl.appendChild(path);
+      const hitPath = document.createElementNS(svgNS, 'path');
+      hitPath.setAttribute('class', 'hit');
+      hitPath.setAttribute('fill', 'none');
+      hitPath.setAttribute('stroke', 'transparent');
+      hitPath.setAttribute('stroke-width', '14');
+      hitPath.setAttribute('pointer-events', 'stroke');
+      svgEl.appendChild(hitPath);
+      el.appendChild(svgEl);
+    }
+    svgEl.setAttribute('viewBox', `0 0 ${note.w} ${note.h}`);
+    const d = handDrawnCirclePath(note.w, note.h, note.id, note.bulge || 0);
+    const visPath = svgEl.querySelector('path.visible');
+    const hitPath = svgEl.querySelector('path.hit');
+    visPath.setAttribute('d', d);
+    hitPath.setAttribute('d', d);
+    visPath.setAttribute('stroke', note.color || '#D32F2F');
+  } else if (note.type === 'text') {
+    el.style.width = '';
+    el.style.height = '';
+    el.style.background = '';
+    el.style.borderColor = '';
+  } else {
+    if (note.w) el.style.width = note.w + 'px';
+    el.style.height = '';
+    el.style.background = note.color;
+    el.style.borderColor = '';
+    el.classList.toggle('dark-bg', isDarkColor(note.color));
+  }
+
+  const textDiv = el.querySelector('.sticky-text');
+  if (document.activeElement !== textDiv) {
+    textDiv.textContent = note.text || '';
+    if (!note.text && !isSizedType(note.type)) {
+      textDiv.innerHTML = `<span class="placeholder">${note.type === 'text' ? 'テキストを入力' : 'ダブルクリックで編集'}</span>`;
+    } else if (isSizedType(note.type)) {
+      textDiv.textContent = '';
+    }
+  }
+  el.classList.toggle('selected', state.selectedNotes.has(note.id));
+}
+
+function getNoteRect(note) {
+  if (isSizedType(note.type)) {
+    return { x: note.x, y: note.y, w: note.w, h: note.h };
+  }
+  const el = document.querySelector(`.sticky[data-id="${note.id}"]`);
+  if (!el) return { x: note.x, y: note.y, w: note.w || 140, h: 100 };
+  return { x: note.x, y: note.y, w: el.offsetWidth, h: el.offsetHeight };
+}
+
+function edgePoint(rect, towardX, towardY) {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const dx = towardX - cx;
+  const dy = towardY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const tx = (rect.w / 2) / Math.abs(dx || 0.0001);
+  const ty = (rect.h / 2) / Math.abs(dy || 0.0001);
+  const t = Math.min(tx, ty);
+  return { x: cx + t * dx, y: cy + t * dy };
+}
+
+function renderArrows() {
+  svg.innerHTML = '';
+  Object.values(state.arrows).forEach(a => renderArrow(a));
+  if (tempArrow) renderTempArrow();
+}
+
+function renderArrow(a) {
+  const fromNote = state.notes[a.from];
+  const toNote = state.notes[a.to];
+  if (!fromNote || !toNote) return;
+  const r1 = getNoteRect(fromNote);
+  const r2 = getNoteRect(toNote);
+  const c1 = { x: r1.x + r1.w/2, y: r1.y + r1.h/2 };
+  const c2 = { x: r2.x + r2.w/2, y: r2.y + r2.h/2 };
+  const p1 = edgePoint(r1, c2.x, c2.y);
+  const p2 = edgePoint(r2, c1.x, c1.y);
+  const selected = state.selectedArrows.has(a.id);
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+  line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+  line.setAttribute('class', 'arrow-line' + (selected ? ' selected' : ''));
+  svg.appendChild(line);
+
+  const hit = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  hit.setAttribute('x1', p1.x); hit.setAttribute('y1', p1.y);
+  hit.setAttribute('x2', p2.x); hit.setAttribute('y2', p2.y);
+  hit.setAttribute('class', 'arrow-hit');
+  hit.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+    if (e.shiftKey) {
+      toggleArrow(a.id);
+    } else {
+      state.selectedNotes.clear();
+      state.selectedArrows.clear();
+      state.selectedArrows.add(a.id);
+      refreshSelectionUI();
+    }
+  });
+  hit.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    const label = prompt('矢印のラベル:', a.label || '');
+    if (label !== null && label !== a.label) {
+      pushHistory();
+      a.label = label;
+      renderArrows();
+      scheduleSave();
+    }
+  });
+  svg.appendChild(hit);
+
+  const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+  const headSize = 10;
+  const hx1 = p2.x - headSize * Math.cos(angle - Math.PI/6);
+  const hy1 = p2.y - headSize * Math.sin(angle - Math.PI/6);
+  const hx2 = p2.x - headSize * Math.cos(angle + Math.PI/6);
+  const hy2 = p2.y - headSize * Math.sin(angle + Math.PI/6);
+  const head = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  head.setAttribute('points', `${p2.x},${p2.y} ${hx1},${hy1} ${hx2},${hy2}`);
+  head.setAttribute('class', 'arrow-head' + (selected ? ' selected' : ''));
+  svg.appendChild(head);
+
+  if (a.label) {
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2 - 6;
+    const padX = 4;
+    const approxW = a.label.length * 7 + padX * 2;
+    const approxH = 16;
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('x', mx - approxW/2);
+    bg.setAttribute('y', my - approxH + 3);
+    bg.setAttribute('width', approxW);
+    bg.setAttribute('height', approxH);
+    bg.setAttribute('fill', 'rgba(245, 243, 237, 0.9)');
+    bg.setAttribute('rx', 3);
+    svg.appendChild(bg);
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', mx);
+    text.setAttribute('y', my);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('class', 'arrow-label');
+    text.textContent = a.label;
+    svg.appendChild(text);
+  }
+}
+
+let tempArrow = null;
+function renderTempArrow() {
+  const fromNote = state.notes[tempArrow.fromId];
+  if (!fromNote) return;
+  const r = getNoteRect(fromNote);
+  const p1 = edgePoint(r, tempArrow.toX, tempArrow.toY);
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+  line.setAttribute('x2', tempArrow.toX); line.setAttribute('y2', tempArrow.toY);
+  line.setAttribute('class', 'arrow-line temp');
+  svg.appendChild(line);
+}
+
+// ---------- Note interactions ----------
+function attachNoteEvents(el) {
+  el.addEventListener('mousedown', (e) => {
+    if (el.classList.contains('editing')) return;
+    if (e.target.classList.contains('handle')) return;
+    // when a tool is active, let the canvas handle placement instead
+    if (state.activeTool) return;
+    e.stopPropagation();
+    blurActiveEditable();
+    const id = el.dataset.id;
+    if (e.shiftKey) {
+      toggleNote(id);
+      return;
+    }
+    if (!state.selectedNotes.has(id)) {
+      state.selectedNotes.clear();
+      state.selectedArrows.clear();
+      state.selectedNotes.add(id);
+      refreshSelectionUI();
+    }
+    startMultiDrag(e);
+  });
+
+  el.addEventListener('dblclick', (e) => {
+    if (e.target.classList.contains('handle')) return;
+    e.stopPropagation();
+    const id = el.dataset.id;
+    const note = state.notes[id];
+    if (isSizedType(note.type)) return; // shapes have no text edit
+    startEditing(el);
+  });
+
+  el.querySelectorAll('.handle').forEach(handle => {
+    handle.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      blurActiveEditable();
+      if (handle.classList.contains('corner')) { startBulge(el, handle, e); return; }
+      if (e.shiftKey) { startResize(el, handle, e); return; }
+      const fromId = el.dataset.id;
+      const p = screenToWorld(e.clientX, e.clientY);
+      tempArrow = { fromId, toX: p.x, toY: p.y };
+      renderArrows();
+      function onMove(ev) {
+        const p = screenToWorld(ev.clientX, ev.clientY);
+        tempArrow.toX = p.x;
+        tempArrow.toY = p.y;
+        renderArrows();
+      }
+      function onUp(ev) {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        const target = findNoteAt(ev.clientX, ev.clientY);
+        if (target && target !== fromId) {
+          pushHistory();
+          const arrowId = uid();
+          state.arrows[arrowId] = { id: arrowId, from: fromId, to: target, label: '' };
+          scheduleSave();
+        }
+        tempArrow = null;
+        renderArrows();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+
+function startMultiDrag(e) {
+  const start = screenToWorld(e.clientX, e.clientY);
+  const initial = {};
+  state.selectedNotes.forEach(nid => {
+    const n = state.notes[nid];
+    if (n) initial[nid] = { x: n.x, y: n.y };
+  });
+  const draggedEls = [];
+  state.selectedNotes.forEach(nid => {
+    const el = document.querySelector(`.sticky[data-id="${nid}"]`);
+    if (el) { el.classList.add('dragging'); draggedEls.push(el); }
+  });
+  let moved = false;
+  let snapshotTaken = false;
+  function onMove(ev) {
+    if (!snapshotTaken) { pushHistory(); snapshotTaken = true; }
+    const p = screenToWorld(ev.clientX, ev.clientY);
+    const dx = p.x - start.x;
+    const dy = p.y - start.y;
+    state.selectedNotes.forEach(nid => {
+      const n = state.notes[nid];
+      if (!n || !initial[nid]) return;
+      n.x = initial[nid].x + dx;
+      n.y = initial[nid].y + dy;
+      const el = document.querySelector(`.sticky[data-id="${nid}"]`);
+      if (el) {
+        el.style.left = n.x + 'px';
+        el.style.top = n.y + 'px';
+      }
+    });
+    moved = true;
+    renderArrows();
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    draggedEls.forEach(el => el.classList.remove('dragging'));
+    if (moved) scheduleSave();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function startBulge(el, handle, e) {
+  const id = el.dataset.id;
+  const note = state.notes[id];
+  if (!note || note.type !== 'circle') return;
+  const startBulgeVal = note.bulge || 0;
+  const startMouse = screenToWorld(e.clientX, e.clientY);
+  const baseR = Math.min(note.w, note.h) / 2 || 1;
+  // Direction of the dragged corner (outward = positive bulge delta)
+  const dirs = {
+    'top-right':    { x:  1, y: -1 },
+    'top-left':     { x: -1, y: -1 },
+    'bottom-right': { x:  1, y:  1 },
+    'bottom-left':  { x: -1, y:  1 },
+  };
+  const d = dirs[handle.dataset.side];
+  const dMag = Math.hypot(d.x, d.y);
+  const ndx = d.x / dMag, ndy = d.y / dMag;
+  let snapshotTaken = false;
+  function onMove(ev) {
+    if (!snapshotTaken) { pushHistory(); snapshotTaken = true; }
+    const p = screenToWorld(ev.clientX, ev.clientY);
+    const dx = p.x - startMouse.x;
+    const dy = p.y - startMouse.y;
+    const projected = dx * ndx + dy * ndy; // outward = +, inward = −
+    const newBulge = Math.max(0, Math.min(0.8, startBulgeVal + projected / baseR));
+    note.bulge = newBulge;
+    renderNote(note);
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (snapshotTaken) scheduleSave();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function startResize(el, handle, e) {
+  const id = el.dataset.id;
+  const note = state.notes[id];
+  if (!note) return;
+  const side = handle.dataset.side;
+  const sized = isSizedType(note.type);
+  // non-sized: only horizontal resize (height is auto)
+  if (!sized && (side === 'top' || side === 'bottom')) return;
+  // text has no fixed width currently; skip for now
+  if (note.type === 'text') return;
+
+  const startX = note.x, startY = note.y;
+  const startW = sized ? note.w : (note.w || el.offsetWidth);
+  const startH = sized ? note.h : el.offsetHeight;
+  const startMouse = screenToWorld(e.clientX, e.clientY);
+  let snapshotTaken = false;
+
+  function onMove(ev) {
+    if (!snapshotTaken) { pushHistory(); snapshotTaken = true; }
+    const p = screenToWorld(ev.clientX, ev.clientY);
+    const dx = p.x - startMouse.x;
+    const dy = p.y - startMouse.y;
+    let nx = startX, ny = startY, nw = startW, nh = startH;
+    if (side === 'right') nw = Math.max(40, startW + dx);
+    else if (side === 'left') {
+      const newW = Math.max(40, startW - dx);
+      nx = startX + (startW - newW);
+      nw = newW;
+    } else if (side === 'bottom') nh = Math.max(20, startH + dy);
+    else if (side === 'top') {
+      const newH = Math.max(20, startH - dy);
+      ny = startY + (startH - newH);
+      nh = newH;
+    }
+    note.x = nx; note.y = ny;
+    note.w = nw;
+    if (sized) note.h = nh;
+    renderNote(note);
+    renderArrows();
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    if (snapshotTaken) scheduleSave();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function findNoteAt(clientX, clientY) {
+  const els = document.elementsFromPoint(clientX, clientY);
+  for (const e of els) {
+    if (e.classList && e.classList.contains('sticky')) return e.dataset.id;
+    if (e.parentElement && e.parentElement.classList && e.parentElement.classList.contains('sticky')) return e.parentElement.dataset.id;
+  }
+  return null;
+}
+
+function blurActiveEditable() {
+  const a = document.activeElement;
+  if (a && a.isContentEditable) a.blur();
+}
+
+// Commit any in-progress edit on mousedown anywhere outside the editing sticky.
+// Capture phase so it runs before element-level handlers.
+document.addEventListener('mousedown', (e) => {
+  const active = document.activeElement;
+  if (!active || !active.isContentEditable) return;
+  const stickyEl = active.closest('.sticky');
+  if (stickyEl && !stickyEl.contains(e.target)) active.blur();
+}, true);
+
+function startEditing(el) {
+  el.classList.add('editing');
+  const id = el.dataset.id;
+  const note = state.notes[id];
+  const textDiv = el.querySelector('.sticky-text');
+  const beforeText = note.text || '';
+  textDiv.textContent = beforeText;
+  textDiv.contentEditable = 'true';
+  textDiv.focus();
+  const range = document.createRange();
+  range.selectNodeContents(textDiv);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  function commit() {
+    textDiv.contentEditable = 'false';
+    el.classList.remove('editing');
+    const newText = textDiv.textContent;
+    if (newText !== beforeText) {
+      pushHistory();
+      // pushHistory captured state with old text, but we already overwrote textDiv.
+      // Snapshot reads state.notes — note.text still has old value at this point.
+      note.text = newText;
+      scheduleSave();
+    } else {
+      note.text = newText;
+    }
+    if (!note.text) {
+      textDiv.innerHTML = `<span class="placeholder">${note.type === 'text' ? 'テキストを入力' : 'ダブルクリックで編集'}</span>`;
+    }
+    textDiv.removeEventListener('blur', commit);
+    textDiv.removeEventListener('keydown', onKey);
+  }
+  function onKey(ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); textDiv.blur(); }
+    if ((ev.metaKey || ev.ctrlKey) && ev.key === 'Enter') { ev.preventDefault(); textDiv.blur(); }
+  }
+  textDiv.addEventListener('blur', commit);
+  textDiv.addEventListener('keydown', onKey);
+}
+
+function createSticky(x, y) {
+  pushHistory();
+  const id = uid();
+  state.notes[id] = {
+    id, type: 'sticky',
+    x: x - 70, y: y - 50,
+    w: 140,
+    color: state.currentColor,
+    text: '',
+    z: maxZ() + 1,
+  };
+  renderNote(state.notes[id]);
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  state.selectedNotes.add(id);
+  refreshSelectionUI();
+  scheduleSave();
+  setTimeout(() => {
+    const el = document.querySelector(`.sticky[data-id="${id}"]`);
+    if (el) startEditing(el);
+  }, 0);
+}
+
+function createTextAt(x, y) {
+  pushHistory();
+  const id = uid();
+  state.notes[id] = {
+    id, type: 'text',
+    x: x - 30, y: y - 12,
+    color: '#333',
+    text: '',
+    z: maxZ() + 1,
+  };
+  renderNote(state.notes[id]);
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  state.selectedNotes.add(id);
+  refreshSelectionUI();
+  scheduleSave();
+  setTimeout(() => {
+    const el = document.querySelector(`.sticky[data-id="${id}"]`);
+    if (el) startEditing(el);
+  }, 0);
+}
+
+function createRect(x, y, w, h, type) {
+  pushHistory();
+  const id = uid();
+  state.notes[id] = {
+    id, type,
+    x, y, w, h,
+    color: state.currentColor,
+    text: '',
+    z: minZ() - 1,
+  };
+  renderNote(state.notes[id]);
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  state.selectedNotes.add(id);
+  refreshSelectionUI();
+  scheduleSave();
+}
+
+function createCircle(x, y, w, h) {
+  pushHistory();
+  const id = uid();
+  state.notes[id] = {
+    id, type: 'circle',
+    x, y, w, h,
+    color: state.currentColor,
+    text: '',
+    z: maxZ() + 1, // circle defaults to front (mark on top of content)
+  };
+  renderNote(state.notes[id]);
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  state.selectedNotes.add(id);
+  refreshSelectionUI();
+  scheduleSave();
+}
+
+// ---------- Viewport interactions ----------
+viewport.addEventListener('dblclick', (e) => {
+  if (e.target !== viewport && e.target !== world && e.target.tagName !== 'svg') return;
+  if (state.activeTool) return; // tools handle their own creation on single click
+  const p = screenToWorld(e.clientX, e.clientY);
+  createSticky(p.x, p.y);
+});
+
+viewport.addEventListener('mousedown', (e) => {
+  if (e.target !== viewport && e.target !== world && e.target.tagName !== 'svg') return;
+  blurActiveEditable();
+
+  // Tool mode interactions
+  if (state.activeTool === 'text') {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const p = screenToWorld(e.clientX, e.clientY);
+    createTextAt(p.x, p.y);
+    setActiveTool(null);
+    return;
+  }
+  if (state.activeTool && isSizedType(state.activeTool)) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    startRectDraw(e, state.activeTool);
+    return;
+  }
+
+  // Default: shift+drag = marquee, otherwise pan
+  if (e.button === 0 && e.shiftKey) {
+    e.preventDefault();
+    startMarquee(e);
+    return;
+  }
+  if (e.button === 0 || e.button === 1) {
+    if (!e.shiftKey) clearSelection();
+    e.preventDefault();
+    startPanning(e);
+  }
+});
+
+function startPanning(e) {
+  viewport.classList.add('panning');
+  const startX = e.clientX, startY = e.clientY;
+  const startVX = state.view.x, startVY = state.view.y;
+  let moved = false;
+  function onMove(ev) {
+    state.view.x = startVX + (ev.clientX - startX);
+    state.view.y = startVY + (ev.clientY - startY);
+    moved = true;
+    applyView();
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    viewport.classList.remove('panning');
+    if (moved) scheduleSave();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function startMarquee(e) {
+  viewport.classList.add('marquee-mode');
+  const start = screenToWorld(e.clientX, e.clientY);
+  const rectEl = document.createElement('div');
+  rectEl.id = 'marquee-rect';
+  rectEl.style.left = start.x + 'px';
+  rectEl.style.top = start.y + 'px';
+  rectEl.style.width = '0px';
+  rectEl.style.height = '0px';
+  world.appendChild(rectEl);
+  function onMove(ev) {
+    const p = screenToWorld(ev.clientX, ev.clientY);
+    const x = Math.min(start.x, p.x);
+    const y = Math.min(start.y, p.y);
+    rectEl.style.left = x + 'px';
+    rectEl.style.top = y + 'px';
+    rectEl.style.width = Math.abs(p.x - start.x) + 'px';
+    rectEl.style.height = Math.abs(p.y - start.y) + 'px';
+  }
+  function onUp(ev) {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    viewport.classList.remove('marquee-mode');
+    const p = screenToWorld(ev.clientX, ev.clientY);
+    const minX = Math.min(start.x, p.x);
+    const maxX = Math.max(start.x, p.x);
+    const minY = Math.min(start.y, p.y);
+    const maxY = Math.max(start.y, p.y);
+    const selectedIds = [];
+    Object.values(state.notes).forEach(n => {
+      const r = getNoteRect(n);
+      const overlap = !(r.x + r.w < minX || maxX < r.x || r.y + r.h < minY || maxY < r.y);
+      if (overlap) selectedIds.push(n.id);
+    });
+    selectNotes(selectedIds, e.shiftKey);
+    rectEl.remove();
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function startRectDraw(e, type) {
+  const start = screenToWorld(e.clientX, e.clientY);
+  const previewEl = document.createElement('div');
+  previewEl.className = 'rect-preview';
+  previewEl.style.left = start.x + 'px';
+  previewEl.style.top = start.y + 'px';
+  previewEl.style.width = '0px';
+  previewEl.style.height = '0px';
+  if (type === 'rect-filled') {
+    previewEl.style.background = colorWithAlpha(state.currentColor, 0.22);
+  }
+  if (type === 'circle') {
+    previewEl.style.borderRadius = '50%';
+    previewEl.style.borderColor = state.currentColor;
+  }
+  world.appendChild(previewEl);
+  function onMove(ev) {
+    const p = screenToWorld(ev.clientX, ev.clientY);
+    const x = Math.min(start.x, p.x);
+    const y = Math.min(start.y, p.y);
+    previewEl.style.left = x + 'px';
+    previewEl.style.top = y + 'px';
+    previewEl.style.width = Math.abs(p.x - start.x) + 'px';
+    previewEl.style.height = Math.abs(p.y - start.y) + 'px';
+  }
+  function onUp(ev) {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    previewEl.remove();
+    const p = screenToWorld(ev.clientX, ev.clientY);
+    const x = Math.min(start.x, p.x);
+    const y = Math.min(start.y, p.y);
+    const w = Math.abs(p.x - start.x);
+    const h = Math.abs(p.y - start.y);
+    const finalize = (fx, fy, fw, fh) => {
+      if (type === 'circle') createCircle(fx, fy, fw, fh);
+      else createRect(fx, fy, fw, fh, type);
+    };
+    if (w > 12 && h > 12) {
+      finalize(x, y, w, h);
+    } else {
+      // small click — create a default-size shape at that point
+      finalize(start.x - 60, start.y - 40, 120, 80);
+    }
+    setActiveTool(null);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+viewport.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  // macOS trackpad pinch arrives as wheel + ctrlKey=true; Cmd/Ctrl+wheel also zooms.
+  if (e.ctrlKey || e.metaKey) {
+    const factor = Math.exp(-e.deltaY * 0.0025);
+    const newScale = Math.max(0.2, Math.min(3, state.view.scale * factor));
+    const rect = viewport.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const wx = (sx - state.view.x) / state.view.scale;
+    const wy = (sy - state.view.y) / state.view.scale;
+    state.view.scale = newScale;
+    state.view.x = sx - wx * newScale;
+    state.view.y = sy - wy * newScale;
+  } else {
+    // two-finger swipe (or mouse wheel without modifier) → pan
+    state.view.x -= e.deltaX;
+    state.view.y -= e.deltaY;
+  }
+  applyView();
+  scheduleSave();
+}, { passive: false });
+
+// ---------- Keyboard ----------
+document.addEventListener('keydown', (e) => {
+  const active = document.activeElement;
+  if (active && (active.isContentEditable || active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+
+  // Undo / Redo
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    undo();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+    e.preventDefault();
+    redo();
+    return;
+  }
+
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (state.selectedNotes.size + state.selectedArrows.size > 0) {
+      deleteSelected();
+      e.preventDefault();
+    }
+  }
+  if (e.key === 'Escape') {
+    clearSelection();
+    closeBoardMenu();
+    setActiveTool(null);
+  }
+
+  if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+    e.preventDefault();
+    const ids = Object.keys(state.notes);
+    selectNotes(ids, false);
+  }
+
+  // Duplicate selected items (Cmd/Ctrl + D)
+  if ((e.metaKey || e.ctrlKey) && e.key === 'd') {
+    e.preventDefault();
+    duplicateSelected();
+    return;
+  }
+
+  // Toggle UI-off mode (clean view)
+  if (e.key === '\\') {
+    e.preventDefault();
+    const wasHidden = document.body.classList.contains('ui-hidden');
+    document.body.classList.toggle('ui-hidden');
+    if (!wasHidden) clearSelection();
+    return;
+  }
+
+  // Layer order: Cmd+] front / Cmd+[ back / Shift= one step
+  if ((e.metaKey || e.ctrlKey) && (e.key === ']' || e.key === '}')) {
+    e.preventDefault();
+    if (e.shiftKey) bringForward(); else bringToFront();
+    return;
+  }
+  if ((e.metaKey || e.ctrlKey) && (e.key === '[' || e.key === '{')) {
+    e.preventDefault();
+    if (e.shiftKey) sendBackward(); else sendToBack();
+    return;
+  }
+
+  const n = parseInt(e.key, 10);
+  if (!isNaN(n) && n >= 1 && n <= COLORS.length) {
+    const color = COLORS[n-1].value;
+    setCurrentColor(color);
+    applyColorToSelection(color);
+  }
+});
+
+function applyColorToSelection(color) {
+  if (state.selectedNotes.size === 0) return;
+  pushHistory();
+  state.selectedNotes.forEach(id => {
+    const note = state.notes[id];
+    if (note) {
+      if (note.type === 'text') return; // text color stays
+      note.color = color;
+      renderNote(note);
+    }
+  });
+  scheduleSave();
+}
+
+function duplicateSelected() {
+  if (state.selectedNotes.size === 0 && state.selectedArrows.size === 0) return;
+  pushHistory();
+  const offset = 20;
+  let z = maxZ() + 1;
+  const idMap = {}; // old id -> new id (notes)
+  // Duplicate notes
+  state.selectedNotes.forEach(oldId => {
+    const orig = state.notes[oldId];
+    if (!orig) return;
+    const newId = uid();
+    idMap[oldId] = newId;
+    const copy = JSON.parse(JSON.stringify(orig));
+    copy.id = newId;
+    copy.x = orig.x + offset;
+    copy.y = orig.y + offset;
+    copy.z = z++;
+    state.notes[newId] = copy;
+  });
+  // Duplicate arrows whose endpoints are both duplicated notes
+  const newArrowIds = [];
+  Object.values(state.arrows).forEach(a => {
+    if (idMap[a.from] && idMap[a.to]) {
+      const newId = uid();
+      const copy = JSON.parse(JSON.stringify(a));
+      copy.id = newId;
+      copy.from = idMap[a.from];
+      copy.to = idMap[a.to];
+      state.arrows[newId] = copy;
+      newArrowIds.push(newId);
+    }
+  });
+  // Move selection to the duplicates
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  Object.values(idMap).forEach(nid => state.selectedNotes.add(nid));
+  newArrowIds.forEach(aid => state.selectedArrows.add(aid));
+  renderAll();
+  scheduleSave();
+}
+
+function deleteSelected() {
+  if (state.selectedNotes.size + state.selectedArrows.size === 0) return;
+  pushHistory();
+  state.selectedNotes.forEach(id => {
+    delete state.notes[id];
+    Object.keys(state.arrows).forEach(aid => {
+      const a = state.arrows[aid];
+      if (a.from === id || a.to === id) delete state.arrows[aid];
+    });
+    document.querySelector(`.sticky[data-id="${id}"]`)?.remove();
+  });
+  state.selectedArrows.forEach(id => { delete state.arrows[id]; });
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  renderArrows();
+  scheduleSave();
+}
+
+// ---------- Toolbar ----------
+function setCurrentColor(value) {
+  state.currentColor = value;
+  document.querySelectorAll('#colors .color-dot').forEach(d => {
+    d.classList.toggle('active', d.dataset.color === value);
+  });
+}
+COLORS.forEach((c, idx) => {
+  const dot = document.createElement('div');
+  dot.className = 'color-dot' + (idx === 0 ? ' active' : '');
+  dot.style.background = c.value;
+  dot.dataset.color = c.value;
+  dot.title = `${idx+1}: ${c.name}`;
+  dot.addEventListener('click', () => {
+    setCurrentColor(c.value);
+    applyColorToSelection(c.value);
+  });
+  colorsBar.appendChild(dot);
+});
+
+document.getElementById('btn-fit').addEventListener('click', () => {
+  const items = Object.values(state.notes);
+  if (items.length === 0) {
+    state.view.x = 0; state.view.y = 0; state.view.scale = 1;
+    applyView();
+    scheduleSave();
+    return;
+  }
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  items.forEach(n => {
+    const r = getNoteRect(n);
+    minX = Math.min(minX, r.x); minY = Math.min(minY, r.y);
+    maxX = Math.max(maxX, r.x + r.w); maxY = Math.max(maxY, r.y + r.h);
+  });
+  const pad = 60;
+  const bw = (maxX - minX) + pad*2;
+  const bh = (maxY - minY) + pad*2;
+  const vw = viewport.clientWidth;
+  const vh = viewport.clientHeight;
+  const scale = Math.min(1.5, Math.min(vw / bw, vh / bh));
+  state.view.scale = scale;
+  state.view.x = vw/2 - ((minX + maxX)/2) * scale;
+  state.view.y = vh/2 - ((minY + maxY)/2) * scale;
+  applyView();
+  scheduleSave();
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  if (Object.keys(state.notes).length === 0 && Object.keys(state.arrows).length === 0) return;
+  if (!confirm('このボードの全要素を削除します。よろしいですか?')) return;
+  pushHistory();
+  Object.keys(state.notes).forEach(k => delete state.notes[k]);
+  Object.keys(state.arrows).forEach(k => delete state.arrows[k]);
+  state.selectedNotes.clear();
+  state.selectedArrows.clear();
+  renderAll();
+  scheduleSave();
+});
+
+document.getElementById('btn-export').addEventListener('click', () => {
+  const board = state.boards[state.currentBoardId];
+  const data = {
+    name: board.name,
+    notes: state.notes, arrows: state.arrows, view: state.view,
+    exportedAt: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const safe = (board.name || 'board').replace(/[^a-zA-Z0-9_\-ぁ-んァ-ヴ一-龠]/g, '_');
+  a.href = url;
+  a.download = `post-it-light-${safe}-${ts}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+const fileImport = document.getElementById('file-import');
+document.getElementById('btn-import').addEventListener('click', () => fileImport.click());
+fileImport.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!confirm('読み込んだ内容を新しいボードとして追加します。よろしいですか?')) { fileImport.value = ''; return; }
+    const id = createBoard(data.name || file.name.replace(/\.json$/, '') || 'Imported', false);
+    const b = state.boards[id];
+    b.notes = data.notes || {};
+    b.arrows = data.arrows || {};
+    b.view = data.view || { x: 0, y: 0, scale: 1 };
+    Object.values(b.notes).forEach(n => { if (!n.type) n.type = 'sticky'; });
+    attachCurrentBoardRefs();
+    renderBoardUI();
+    renderAll();
+    scheduleSave();
+  } catch (err) {
+    alert('読み込み失敗: ' + err.message);
+  }
+  fileImport.value = '';
+});
+
+// ---------- PNG Export ----------
+document.getElementById('btn-export-png').addEventListener('click', exportPNG);
+
+function exportPNG() {
+  const items = Object.values(state.notes);
+  if (items.length === 0) { alert('要素がありません'); return; }
+
+  const rects = {};
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  items.forEach(n => {
+    const r = getNoteRect(n);
+    rects[n.id] = r;
+    // expand bbox for circles (straight leads extend well outside the rect)
+    const m = (n.type === 'circle') ? Math.max(r.w, r.h) * 0.6 : 0;
+    minX = Math.min(minX, r.x - m); minY = Math.min(minY, r.y - m);
+    maxX = Math.max(maxX, r.x + r.w + m); maxY = Math.max(maxY, r.y + r.h + m);
+  });
+  const pad = 40;
+  const W = (maxX - minX) + pad * 2;
+  const H = (maxY - minY) + pad * 2;
+  const dpr = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(W * dpr);
+  canvas.height = Math.ceil(H * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#f5f3ed';
+  ctx.fillRect(0, 0, W, H);
+  ctx.translate(-minX + pad, -minY + pad);
+
+  // layering by z: items with z<1 below arrows, items with z>=1 above (matches in-DOM tie-break)
+  const sorted = items.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+  sorted.filter(n => (n.z || 0) < 1).forEach(n => drawShapeOnCanvas(ctx, n, rects[n.id]));
+  Object.values(state.arrows).forEach(a => drawArrowOnCanvas(ctx, a, rects));
+  sorted.filter(n => (n.z || 0) >= 1).forEach(n => drawShapeOnCanvas(ctx, n, rects[n.id]));
+
+  canvas.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const board = state.boards[state.currentBoardId];
+    const safe = (board.name || 'board').replace(/[^a-zA-Z0-9_\-ぁ-んァ-ヴ一-龠]/g, '_');
+    a.href = url;
+    a.download = `post-it-light-${safe}-${ts}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+function drawShapeOnCanvas(ctx, note, rect) {
+  ctx.save();
+  if (note.type === 'rect-outline') {
+    ctx.strokeStyle = note.color || '#888';
+    ctx.lineWidth = 3;
+    const r = 6;
+    roundedRectPath(ctx, rect.x, rect.y, rect.w, rect.h, r);
+    ctx.stroke();
+  } else if (note.type === 'rect-filled') {
+    ctx.fillStyle = colorWithAlpha(note.color || '#FFC864', 0.22);
+    const r = 6;
+    roundedRectPath(ctx, rect.x, rect.y, rect.w, rect.h, r);
+    ctx.fill();
+  } else if (note.type === 'circle') {
+    ctx.strokeStyle = note.color || '#D32F2F';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const path2d = new Path2D(handDrawnCirclePath(rect.w, rect.h, note.id, note.bulge || 0));
+    ctx.translate(rect.x, rect.y);
+    ctx.stroke(path2d);
+  } else if (note.type === 'text') {
+    drawNoteText(ctx, note, rect, /*hasBg*/ false);
+  } else {
+    // sticky
+    ctx.shadowColor = 'rgba(0,0,0,0.12)';
+    ctx.shadowBlur = 6;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = note.color;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    drawNoteText(ctx, note, rect, /*hasBg*/ true);
+  }
+  ctx.restore();
+}
+
+function roundedRectPath(ctx, x, y, w, h, r) {
+  r = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawNoteText(ctx, note, rect, hasBg) {
+  if (!note.text) return;
+  ctx.fillStyle = (note.type === 'sticky' && isDarkColor(note.color)) ? '#fff' : '#333';
+  ctx.font = '14px -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif';
+  ctx.textBaseline = 'top';
+  const padX = hasBg ? 14 : 6;
+  const padY = hasBg ? 12 : 4;
+  const maxW = rect.w - padX * 2;
+  const lineHeight = 20;
+  let y = rect.y + padY;
+  const paragraphs = note.text.split('\n');
+  for (const para of paragraphs) {
+    const lines = wrapText(ctx, para, maxW);
+    for (const line of lines) {
+      if (y + lineHeight > rect.y + rect.h) break;
+      ctx.fillText(line, rect.x + padX, y);
+      y += lineHeight;
+    }
+    if (y + lineHeight > rect.y + rect.h) break;
+  }
+}
+
+function wrapText(ctx, text, maxWidth) {
+  if (!text) return [''];
+  const lines = [];
+  let line = '';
+  for (const ch of text) {
+    const test = line + ch;
+    if (ctx.measureText(test).width > maxWidth && line.length > 0) {
+      lines.push(line);
+      line = ch;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function drawArrowOnCanvas(ctx, arrow, rects) {
+  const r1 = rects[arrow.from];
+  const r2 = rects[arrow.to];
+  if (!r1 || !r2) return;
+  const c1 = { x: r1.x + r1.w/2, y: r1.y + r1.h/2 };
+  const c2 = { x: r2.x + r2.w/2, y: r2.y + r2.h/2 };
+  const p1 = edgePoint(r1, c2.x, c2.y);
+  const p2 = edgePoint(r2, c1.x, c1.y);
+
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.stroke();
+
+  const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+  const headSize = 10;
+  ctx.fillStyle = '#555';
+  ctx.beginPath();
+  ctx.moveTo(p2.x, p2.y);
+  ctx.lineTo(p2.x - headSize * Math.cos(angle - Math.PI/6), p2.y - headSize * Math.sin(angle - Math.PI/6));
+  ctx.lineTo(p2.x - headSize * Math.cos(angle + Math.PI/6), p2.y - headSize * Math.sin(angle + Math.PI/6));
+  ctx.closePath();
+  ctx.fill();
+
+  if (arrow.label) {
+    ctx.font = '12px -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif';
+    const w = ctx.measureText(arrow.label).width;
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2 - 6;
+    ctx.fillStyle = 'rgba(245, 243, 237, 0.9)';
+    ctx.fillRect(mx - w/2 - 4, my - 12, w + 8, 16);
+    ctx.fillStyle = '#444';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(arrow.label, mx, my);
+    ctx.textAlign = 'start';
+  }
+}
+
+// ---------- Init ----------
+loadFromStorage();
+renderBoardUI();
+renderAll();
+</script>
+</body>
+</html>
